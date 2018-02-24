@@ -50,7 +50,7 @@ Rewards will be determined according a risk matrix of impact severity and likeli
 *1 point = 1 USD worth of ETH at time of payment.*
 - **Critical**: up to 1000 points 
 
-*Examples*: Steal someones part trivially. Steal ETH off a user or the contract. Access onlyOwner functions. Ruin a significant portion of game experience. 
+*Examples*: Steal someone's part trivially. Steal ETH off a user or the contract. Access onlyOwner functions. Ruin a significant portion of game experience. 
 - **High**: up to 500 points
 
 *Examples*: Access things for free, i.e. battling without battle fees. Control any functions' randomness in an exploitable way.
