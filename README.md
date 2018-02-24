@@ -49,13 +49,17 @@ Rewards will be determined according a risk matrix of impact severity and likeli
 
 *1 point = 1 USD worth of ETH at time of payment.*
 - **Critical**: up to 1000 points 
+
 *Examples*: Steal someones part trivially. Steal ETH off a user or the contract. Access onlyOwner functions. Ruin a significant portion of game experience. 
 - **High**: up to 500 points
+
 *Examples*: Access things for free, i.e. battling without battle fees. Control any functions' randomness in an exploitable way.
 - **Medium**: up to 250 points
+
 *Examples:* Disrupt other user's actions, such as stopping them from being able to bid on an auction, stopping them from battling or revealing moves, etc. 
 - **Low**: up to 100 points
-- *Examples*: Scaling issues -- anything that might break with large amounts of users. Improvements in gas efficiency (we will consider proportionate to gas saved -- if highly significant and a specific fix is recommended, we will award higher points than this cap. Keep in mind the functionality needs to remain the same.)  Break the strategic integrity of the game (i.e. find a way to collude beneficially). 
+
+*Examples*: Scaling issues -- anything that might break with large amounts of users. Improvements in gas efficiency (we will consider proportionate to gas saved -- if highly significant and a specific fix is recommended, we will award higher points than this cap. Keep in mind the functionality needs to remain the same.)  Break the strategic integrity of the game (i.e. find a way to collude beneficially). 
 
 Please be **clear** in your description of the bug. Recreate the exact steps needed to make the bug happen with screenshots, code, a video or descriptions.
 
