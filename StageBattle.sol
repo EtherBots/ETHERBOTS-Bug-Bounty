@@ -333,6 +333,7 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
     function cancelBattle(uint _duelId) external {
 
         Duel memory _duel = duels[_duelId];
+        require(_duel.status == DuelStatus.Open || _duel.status == DuelStatus.Exhausted);
 
         // can only be called by the defender
         require(msg.sender == _duel.defenderAddress);
