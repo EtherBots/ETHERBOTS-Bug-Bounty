@@ -3,6 +3,7 @@
 
 **ETHERBOTS** is a decentralised Robot Wars game on the Ethereum blockchain. It is currently live on the Rinkeby testnet at https://etherbots.io/. This wiki will step you through a high level overview of the code, and set out a criteria for submitting bugs. The github code will be updated frequently as we respond to bugs, so make sure to pull the latest versions. We highly recommend cloning/forking a version of this repository so you have access to linter & build functionalities for your convenience.
 
+The mainnet game launches on March 3 PST.
 
 
 ### INTRODUCTION TO ETHERBOTS
