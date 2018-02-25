@@ -7,6 +7,7 @@ import "./AccessControl.sol";
 
 contract TwoPlayerCommitRevealBattle is Battle, Pausable {
 
+
     EtherbotsBattle _base;
 
     function TwoPlayerCommitRevealBattle(EtherbotsBattle base) public {
@@ -115,21 +116,21 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
     =========================
     */
 
+
+
+    // centrally controlled fields
+    // CONSIDER: can users ever change these (e.g. different time per battle)
+    // CONSIDER: how do we incentivize users to fight 'harder' bots
     uint8 public maxAttackers = 5;
+    uint public maxRevealTime;
+    uint public attackerFee = 0;
+    uint public defenderFee = 0;
+    uint public expiryCompensation = 0;
 
     function setMaxAttackers(uint8 _max) external onlyOwner {
         BattlePropertyChanged("Defender Fee", uint(maxAttackers), uint(_max));
         maxAttackers = _max;
     }
-
-    // centrally controlled fields
-    // CONSIDER: can users ever change these (e.g. different time per battle)
-    // CONSIDER: how do we incentivize users to fight 'harder' bots
-    uint public maxRevealTime;
-    uint public attackerFee;
-    uint public defenderFee;
-    uint public attackerRefund;
-    uint public defenderRefund;
 
     function setDefenderFee(uint _fee) external onlyOwner {
         BattlePropertyChanged("Defender Fee", defenderFee, _fee);
@@ -142,16 +143,9 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
     }
 
     function setAttackerRefund(uint _refund) external onlyOwner {
-        BattlePropertyChanged("Attacker Refund", attackerRefund, _refund);
-        attackerRefund = _refund;
+        BattlePropertyChanged("Attacker Refund", expiryCompensation, _refund);
+        expiryCompensation = _refund;
     }
-
-    function setDefenderRefund(uint _refund) external onlyOwner {
-        BattlePropertyChanged("Defender Refund", defenderRefund, _refund);
-        defenderRefund = _refund;
-    }
-    
-
 
 
     function _makePart(uint _id) internal view returns(EtherbotsBase.Part) {
@@ -194,8 +188,8 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         require(msg.value >= defenderFee);
 
         // check parts //defence1 melee2 body3 turret4
-        uint8[4] memory types = [1, 2, 3, 4];
-        require(_base.hasPartTypes(partIds, types));
+        // uint8[4] memory types = [1, 2, 3, 4];
+        require(_base.hasValidParts(partIds));
 
         // is this the way of balancing the benefit of attacking?
         // should we have a max number of people who can attack one defender if we're going down this route?
@@ -217,11 +211,13 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         BattleCreated(newDuelId, _defender);
     }
 
-    function attack(uint _duelId, uint[] parts, uint8[] _moves) external payable returns(bool) {
+    function attack(uint _duelId, uint[] partIds, uint8[] _moves) external payable returns(bool) {
 
         // check that it's your robot
-        require(_base.ownsAll(msg.sender, parts));
-
+        require(_base.ownsAll(msg.sender, partIds));
+        // check parts submitted are valid
+        require(_base.hasValidParts(partIds));
+        
         // check that the moves are readable
         require(_isValidMoves(_moves));
 
@@ -232,27 +228,33 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         require(msg.value >= attackerFee);
 
         // checks part independence and timing
-        require(_canAttack(_duelId, parts));
+        require(_canAttack(_duelId, partIds));
 
         if (duel.feeRemaining < defenderFee) {
             // just do a return - no need to punish the attacker
-            // mark as exhaused
+            // mark as exhausted
             duel.status = DuelStatus.Exhausted;
             return false;
         }
+        
 
         duel.feeRemaining -= defenderFee;
 
         // already guaranteed
         Attacker memory _a = Attacker({
             owner: msg.sender,
-            parts: parts,
+            parts: partIds,
             moves: _moves,
             isWinner: false
         });
 
         // duelIdToAttackers[_duelId].push(_a);
         duelIdToAttackers[_duelId].push(_a);
+        
+        if (duelIdToAttackers[_duelId].length == maxAttackers) {
+            duel.status = DuelStatus.Exhausted;
+        }
+
         // increment those battling - @rename
         duelingPlayers++;
         return true;
@@ -294,7 +296,7 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
     function defenderRevealMoves(uint _duelId, uint8[] _moves, bytes32 _seed) external returns(bool) {
         require(duelIdToAttackers[_duelId].length != 0);
 
-        Duel memory _duel = duels[_duelId];
+        Duel storage _duel = duels[_duelId];
 
         PrintMsg("reveal with defender", _duel.defenderAddress, msg.sender);
 
@@ -320,7 +322,6 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         duelingPlayers -= (duelIdToAttackers[_duelId].length + 1);
         // give back an extra fees
         _refundDuelFee(_duel);
-        // _refundDefenderFee(duelIdToAttackers[_duelId].length);
         // send back ownership of parts
         _base.transferAll(_duel.defenderAddress, _duel.defenderParts);
         duels[_duelId].status = DuelStatus.Completed;
@@ -332,65 +333,61 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
     // forfeits every battle
     function cancelBattle(uint _duelId) external {
 
-        Duel memory _duel = duels[_duelId];
-        require(_duel.status == DuelStatus.Open || _duel.status == DuelStatus.Exhausted);
+        Duel storage _duel = duels[_duelId];
 
         // can only be called by the defender
         require(msg.sender == _duel.defenderAddress);
 
-        for (uint i = 0; i < duelIdToAttackers[_duelId].length; i++) {
-            Attacker memory tempA = duelIdToAttackers[_duelId][i];
-            duelIdToAttackers[_duelId][i].isWinner = true;
-            _forfeitBattle(tempA.owner, tempA.moves, tempA.parts, _duel.defenderParts);
-        }
-        // no gas refund for cancelling
-        // encourage people to battle rather than cancel
-        _refundDuelFee(_duel);
-        _base.transferAll(_duel.defenderAddress, _duel.defenderParts);
+        Attacker[] memory attackers = duelIdToAttackers[_duelId];
+
+        _forceAttackerWin(_duel, attackers);
+
         duels[_duelId].status = DuelStatus.Cancelled;
     }
 
     // after the time limit has elapsed, anyone can claim victory for all the attackers
     // have to pay gas cost for all
-    // todo: how much will this cost for 256 attackers?
     function claimTimeVictory(uint _duelId) external {
+
         Duel storage _duel = duels[_duelId];
+
         // let anyone claim it to stop boring iteration
         // @fixme CHANGED FROM MAX REVEAL TIME (doesn't exist) TO 
-        // MAX ACCPEPT TIME + 1 DAY.
+        // MAX ACCEPT TIME + 1 DAY.
         require(now > (_duel.maxAcceptTime + 1 days));
-        for (uint i = 0; i < duelIdToAttackers[_duelId].length; i++) {
-            Attacker memory tempA = duelIdToAttackers[_duelId][i];
-  
-            duelIdToAttackers[_duelId][i].isWinner = true;            
-            _forfeitBattle(tempA.owner, tempA.moves, tempA.parts, _duel.defenderParts);
-        }
-        _refundAttacker(duelIdToAttackers[_duelId].length);
-        // refund the defender
-        _refundDuelFee(_duel);
-        _base.transferAll(_duel.defenderAddress, _duel.defenderParts);
+
+        Attacker[] memory attackers = duelIdToAttackers[_duelId];
+
+        _forceAttackerWin(_duel, attackers);
+
         _duel.status = DuelStatus.Completed;
     }
 
-    // compensation for gas costs
-    // paid out of the battle fees
-    function _refundDefender(uint _count) internal {
-        uint refund = (_count * defenderFee);
-        if (refund > 0) {
-            msg.sender.transfer(refund);
+    function _forceAttackerWin(Duel storage _duel, Attacker[] memory _attackers) internal {
+       
+        require(_duel.status == DuelStatus.Open || _duel.status == DuelStatus.Exhausted);
+
+        for (uint i = 0; i < _attackers.length; i++) {
+            Attacker memory tempA = _attackers[i];
+            _attackers[i].isWinner = true;
+            _forfeitBattle(tempA.owner, tempA.moves, tempA.parts, _duel.defenderParts);
         }
+        
+        // refund the defender
+
+        _refundDuelFee(_duel);
+        
+        // transfer parts back to defender
+
+        _base.transferAll(_duel.defenderAddress, _duel.defenderParts);
+
+
     }
 
-    function _refundAttacker(uint _count) internal {
-        // they have paid for everyone else to win
-        // could be quite expensive
-        uint refund = (_count * attackerFee);
-        if (refund > 0) {
-            msg.sender.transfer(refund);
-        }
-    }
 
-    function _refundDuelFee(Duel _duel) internal {
+  
+
+    function _refundDuelFee(Duel storage _duel) internal {
         if (_duel.feeRemaining > 0) {
             uint a = _duel.feeRemaining;
             _duel.feeRemaining = 0;
@@ -501,7 +498,6 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
                     }
                 } else if (move == DODGE && hasPerk(tree, PT_BODY)) {
                     bonus = _applyPerkBonus(bonus, prestige);
-                    bonus = _applyPerkBonus(bonus, prestige);
                     if (hasPerk(tree, PT_BODY_MECH)) {
                         bonus = _applyPerkBonus(bonus, prestige);
                         if (getMoveType(parts, move) == ELECTRIC && hasPerk(tree, PT_BODY_ELECTRIC)) {
@@ -540,7 +536,6 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
                         }
                     }
                 } else if (move == TURRET && hasPerk(tree, PT_TURRET)) {
-                    bonus = _applyPerkBonus(bonus, prestige);
                     bonus = _applyPerkBonus(bonus, prestige);
                     if (hasPerk(tree, PT_TURRET_MECH)) {
                         bonus = _applyPerkBonus(bonus, prestige);
