@@ -51,17 +51,19 @@ contract EtherbotsBattle is EtherbotsMigrations {
         _;
     }
 
-    function createBattle(uint _battleId, uint[] partIds, bytes32 commit) external payable {
+
+    function createBattle(uint _battleId, uint[] partIds, bytes32 commit, uint revealLength) external payable {
         // sanity check to make sure _battleId is a valid battle
         require(_battleId >= 0);
         require(_battleId < approvedBattles.length);
-        require(ownsAll(msg.sender, partIds));
+        require(ownsAll(msg.sender, partIds)); // @fixme Is this necessary? Won't it fail the _approve if it doesn't own any part?
+
         Battle battle = Battle(approvedBattles[_battleId]);
         // Transfer all to selected battle contract.
         for (uint i=0; i<partIds.length; i++) {
             _approve(partIds[i], address(battle));
         }
-        battle.createBattle.value(msg.value)(msg.sender, partIds, commit);
+        battle.createBattle.value(msg.value)(msg.sender, partIds, commit, revealLength);
 
     }
 
@@ -254,7 +256,7 @@ contract EtherbotsBattle is EtherbotsMigrations {
             total += getLevel(parts[partIds[i]].experience);
         }
         return total;
-    }
+}
 
 
     function hasValidParts(uint[] partIds) external view returns(bool) {
