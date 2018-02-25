@@ -182,7 +182,7 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         for (uint i = 0; i < _partIds.length; i++) {
             base.takeOwnership(_partIds[i]);
         }
-        
+
         _defenderCommitMoves(_creator, _partIds, _commit, _revealLength);
     }
 
@@ -375,13 +375,12 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
 
     function _forceAttackerWin(uint _duelId, Duel storage _duel) internal {
 
-        Attacker[] memory _attackers = duelIdToAttackers[_duelId];
 
         require(_duel.status == DuelStatus.Open || _duel.status == DuelStatus.Exhausted);
 
-        for (uint i = 0; i < _attackers.length; i++) {
-            Attacker memory tempA = _attackers[i];
-            _attackers[i].isWinner = true;
+        for (uint i = 0; i < duelIdToAttackers[_duelId].length; i++) {
+            Attacker memory tempA = duelIdToAttackers[_duelId][i];
+            duelIdToAttackers[_duelId][i].isWinner = true;
             _forfeitBattle(tempA.owner, tempA.moves, tempA.parts, _duel.defenderParts);
         }
         // refund the defender
