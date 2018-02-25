@@ -5,7 +5,9 @@ import "./Battle.sol";
 import "./Base.sol";
 import "./AccessControl.sol";
 
+
 contract TwoPlayerCommitRevealBattle is Battle, Pausable {
+
 
     EtherbotsBattle base;
 
@@ -18,8 +20,6 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
     }
 
     // Battle interface implementation.
-
-
     function name() external view returns (string) {
         return "2PCR";
     }
@@ -33,17 +33,13 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
     }
 
     function winnersOf(uint _duelId) external view returns (address[16] winnerAddresses) {
-        // Duel memory _duel = duels[_duelId];
-        // address[16] memory winnerAddresses;
-        // winnerAddresses[0] = _duel.defenderAddress;
-        // return winnerAddresses;
         uint8 max = 16;
         if (duelIdToAttackers[_duelId].length < max) {
             max = uint8(duelIdToAttackers[_duelId].length);
         }
         for (uint8 i = 0; i < max; i++) {
             if (duelIdToAttackers[_duelId][i].isWinner) {
-                winnerAddresses[i]= duelIdToAttackers[_duelId][i].owner;
+                winnerAddresses[i] = duelIdToAttackers[_duelId][i].owner;
             } else {
                 winnerAddresses[i] = duels[_duelId].defenderAddress;
             }
@@ -63,15 +59,19 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
     }
 
     enum DuelStatus {
-        Open, Exhausted, Completed, Cancelled
+        Open,
+        Exhausted,
+        Completed,
+        Cancelled
     }
+
     // mapping (uint => address) public battleIdToWinnerAddress;
     // TODO: packing?
     struct Duel {
         uint feeRemaining;
         uint[] defenderParts;
         bytes32 defenderCommit;
-        uint64 maxAcceptTime;
+        uint64 revealTime;
         address defenderAddress;
         DuelStatus status;
     }
@@ -98,7 +98,8 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
     }
 
     function getAttackersPartsFromDuelIdAndIndex(uint index, uint i) external view returns (uint, uint, uint, uint) {
-        return (duelIdToAttackers[index][i].parts[0],duelIdToAttackers[index][i].parts[1],duelIdToAttackers[index][i].parts[2],duelIdToAttackers[index][i].parts[3]);
+        Attacker memory a = duelIdToAttackers[index][i];
+        return (a.parts[0], a.parts[1], a.parts[2], a.parts[3]);
     }
 
     function getAttackersLengthFromDuelId(uint index) external view returns (uint) {
@@ -106,12 +107,17 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
     }
 
     function getDefendersPartsFromDuelId(uint index) external view returns (uint, uint, uint, uint) {
-        return (duels[index].defenderParts[0],duels[index].defenderParts[1],duels[index].defenderParts[2],duels[index].defenderParts[3]);
+        return (duels[index].defenderParts[0], duels[index].defenderParts[1],
+            duels[index].defenderParts[2], duels[index].defenderParts[3]);
     }
 
-    function getDuelFromId(uint index) external view returns (uint, uint, uint, uint, uint, bytes32, uint64, address, DuelStatus) {
+    function getDuelFromId(uint index) external view returns (
+        uint, uint, uint, uint, uint, bytes32, uint64, address, DuelStatus
+    ) {
         Duel memory _duel = duels[index];
-        return (_duel.feeRemaining, _duel.defenderParts[0],_duel.defenderParts[1],_duel.defenderParts[2],_duel.defenderParts[3], _duel.defenderCommit, _duel.maxAcceptTime, _duel.defenderAddress, _duel.status);
+        return (_duel.feeRemaining, _duel.defenderParts[0], _duel.defenderParts[1],
+            _duel.defenderParts[2], _duel.defenderParts[3], _duel.defenderCommit,
+            _duel.revealTime, _duel.defenderAddress, _duel.status);
     }
 
     /*
@@ -119,7 +125,6 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
      OWNER CONTROLLED FIELDS
     =========================
     */
-
     // centrally controlled fields
     // CONSIDER: can users ever change these (e.g. different time per battle)
     // CONSIDER: how do we incentivize users to fight 'harder' bots
@@ -149,7 +154,6 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         expiryCompensation = _refund;
     }
 
-
     function _makePart(uint _id) internal view returns(EtherbotsBase.Part) {
         var (id, pt, pst, rarity, element, bld, exp, forgeTime, blr) = base.getPartById(_id);
         return EtherbotsBase.Part({
@@ -171,20 +175,19 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
     =========================
     */
 
-    // commit should be in the form of:
-    // uint[8]|random string
+    function createBattle(address _creator, uint[] _partIds, bytes32 _commit, uint _revealLength) external payable whenNotPaused { 
 
-    function createBattle(address _defender, uint[] partIds, bytes32 _movesCommit) external payable whenNotPaused {
         require(msg.sender == address(base));
 
-        // will fail if the base doesn't own all of the parts
-        for (uint i=0; i<partIds.length; i++) {
-            base.takeOwnership(partIds[i]);
+        for (uint i = 0; i < _partIds.length; i++) {
+            base.takeOwnership(_partIds[i]);
         }
-        _defenderCommitMoves(_defender, partIds, _movesCommit);
+        
+        _defenderCommitMoves(_creator, _partIds, _commit, _revealLength);
     }
 
-    function _defenderCommitMoves(address _defender, uint[] partIds, bytes32 _movesCommit) internal {
+    function _defenderCommitMoves(address _defender, 
+        uint[] partIds, bytes32 _movesCommit, uint _revealLength) internal {
         require(_movesCommit != "");
 
         require(msg.value >= defenderFee);
@@ -200,7 +203,7 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
             defenderAddress: _defender,
             defenderParts: partIds,
             defenderCommit: _movesCommit,
-            maxAcceptTime: uint64(now + maxRevealTime),
+            revealTime: uint64(now + _revealLength),
             status: DuelStatus.Open,
             // attackers: new Attacker[](0),
             feeRemaining: msg.value
@@ -226,6 +229,8 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         Duel storage duel = duels[_duelId];
         // the duel must be open
         require(duel.status == DuelStatus.Open);
+        // can't attack after reveal time (no free wins)
+        require(duel.revealTime >= now);
         require(duelIdToAttackers[_duelId].length < maxAttackers);
         require(msg.value >= attackerFee);
 
@@ -279,7 +284,7 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         return true;
     }
 
-    uint8 constant MOVE_LENGTH = 8;
+    uint8 constant MOVE_LENGTH = 5;
 
     function _isValidMoves(uint8[] _moves) internal pure returns(bool) {
         if (_moves.length != MOVE_LENGTH) {
@@ -303,8 +308,9 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         PrintMsg("reveal with defender", _duel.defenderAddress, msg.sender);
 
         require(_duel.defenderAddress == msg.sender);
-
         require(_duel.defenderCommit == keccak256(_moves, _seed));
+
+        require(_duel.status == DuelStatus.Open || _duel.status == DuelStatus.Exhausted);
 
         if (!_isValidMoves(_moves)) {
             _forceAttackerWin(_duelId, _duel);
@@ -319,10 +325,13 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
             _makePart(_duel.defenderParts[2]),
             _makePart(_duel.defenderParts[3])
         ];
-        for (uint i = 0; i < duelIdToAttackers[_duelId].length; i++) {
-            Attacker storage tempA = duelIdToAttackers[_duelId][i];
-            _executeMoves(_duelId, tempA, defenderParts, _moves);
+
+        Attacker[] storage attackers = duelIdToAttackers[_duelId];
+
+        for (uint i = 0; i < attackers.length; i++) {
+            _executeMoves(_duelId, attackers[i], defenderParts, _moves);
         }
+
         duelingPlayers -= (duelIdToAttackers[_duelId].length + 1);
         // give back an extra fees
         _refundDuelFee(_duel);
@@ -356,7 +365,8 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         // let anyone claim it to stop boring iteration
         // @fixme CHANGED FROM MAX REVEAL TIME (doesn't exist) TO
         // MAX ACCEPT TIME + 1 DAY.
-        require(now > (_duel.maxAcceptTime + 1 days));
+        require(now > _duel.revealTime);
+        require(_duel.status == DuelStatus.Open || _duel.status == DuelStatus.Exhausted);
 
         _forceAttackerWin(_duelId, _duel);
 
@@ -382,9 +392,6 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         base.transferAll(_duel.defenderAddress, _duel.defenderParts);
     }
 
-
-
-
     function _refundDuelFee(Duel storage _duel) internal {
         if (_duel.feeRemaining > 0) {
             uint a = _duel.feeRemaining;
@@ -393,7 +400,7 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         }
     }
 
-    uint16 constant EXPbase = 100;
+    uint16 constant EXP_BASE = 100;
     uint16 constant WINNER_EXP = 3;
     uint16 constant LOSER_EXP = 1;
 
@@ -564,29 +571,29 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         return bonus + (PERK_BONUS + (prestige * PRESTIGE_BONUS));
     }
 
-   function _getPerkBonus(uint8 move, EtherbotsBase.Part[4] parts) internal view returns (uint8) {
-       var (, perks) = base.getUserByAddress(msg.sender);
-       return _applyBonusTree(move, parts, perks);
-   }
+    function _getPerkBonus(uint8 move, EtherbotsBase.Part[4] parts) internal view returns (uint8) {
+        var (, perks) = base.getUserByAddress(msg.sender);
+        return _applyBonusTree(move, parts, perks);
+    }
 
-   uint8 constant EXP_BONUS = 1;
-   uint8 constant EVERY_X_LEVELS = 2;
+    uint8 constant EXP_BONUS = 1;
+    uint8 constant EVERY_X_LEVELS = 2;
 
-   function _getExpBonus(EtherbotsBase.Part part) internal view returns (uint8) {
-       // could replicate locally but allow base contract to make updates
-       return uint8((EXP_BONUS * base.getLevel(part.experience)) / EVERY_X_LEVELS);
-   }
+    function _getExpBonus(uint32 experience) internal view returns (uint8) {
+        // could replicate locally but allow base contract to make updates
+        return uint8((EXP_BONUS * base.getLevel(experience)) / EVERY_X_LEVELS);
+    }
 
-   uint8 constant STANDARD_RARITY = 1;
-   uint8 constant SHADOW_RARITY = 2;
-   uint8 constant GOLD_RARITY = 3;
+    uint8 constant STANDARD_RARITY = 1;
+    uint8 constant SHADOW_RARITY = 2;
+    uint8 constant GOLD_RARITY = 3;
 
     // allow for more rarities
     // might never implement: undroppable rarities
     // 5 gold parts can be forged into a diamond
     // assumes rarity as follows: standard = 0, shadow = 1, gold = 2
     // shadow gives base 5% boost, gold 10% ...
-   function _getRarityBonus(uint8 move, EtherbotsBase.Part[4] parts) internal pure returns (uint8) {
+    function _getRarityBonus(uint8 move, EtherbotsBase.Part[4] parts) internal pure returns (uint8) {
         // bonus applies per part (but only if you're using the rare part in this move)
         uint8 rarity = parts[move].rarity;
         if (rarity == STANDARD_RARITY) {
@@ -602,46 +609,47 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         }
         uint8 bonus = (rarity - 1) * count * BONUS_PERCENT;
         return bonus;
-   }
+    }
 
-   function _applyBonuses(uint8 move, EtherbotsBase.Part[4] parts, uint16 _dmg) internal view returns(uint16) {
-       // perks only land if you won the move
-       uint16 _bonus = 0;
-       _bonus += _getPerkBonus(move, parts);
-       _bonus += _getElementBonus(move, parts);
-       _bonus += _getExpBonus(parts[move]);
-       _bonus += _getRarityBonus(move, parts);
-       _dmg += (_dmg * _bonus) / 100;
-       return _dmg;
-   }
+    function _applyBonuses(uint8 move, EtherbotsBase.Part[4] parts, uint16 _dmg) internal view returns(uint16) {
+        // perks only land if you won the move
+        uint16 _bonus = 0;
+        _bonus += _getPerkBonus(move, parts);
+        _bonus += _getElementBonus(move, parts);
+        _bonus += _getExpBonus(parts[move].experience);
+        _bonus += _getRarityBonus(move, parts);
+        _dmg += (_dmg * _bonus) / 100;
+        return _dmg;
+    }
 
-   // what about collusion - can try to time the block?
-   // obviously if colluding could just pick exploitable moves
-   // this is random enough for two non-colluding parties
-   function randomSeed(uint8[] defenderMoves, uint8[] attackerMoves, uint8 rand) internal pure returns (uint) {
+    // what about collusion - can try to time the block?
+    // obviously if colluding could just pick exploitable moves
+    // this is random enough for two non-colluding parties
+    function randomSeed(uint8[] defenderMoves, uint8[] attackerMoves, uint8 rand) internal pure returns (uint) {
         return uint(keccak256(defenderMoves, attackerMoves, rand));
         // return random;
-   }
+    }
 
-   event attackerdamage(uint16 dam);
-   event defenderdamage(uint16 dam);
+    event attackerdamage(uint16 dam);
+    event defenderdamage(uint16 dam);
 
-   function _executeMoves(uint _duelId, Attacker storage attacker, EtherbotsBase.Part[4] defenderParts, uint8[] _defenderMoves) internal {
-       // @fixme change usage of seed to make sure it's okay.
-    //    uint seed = randomSeed(_defenderMoves, attacker.moves);
-       uint16 totalAttackerDamage = 0;
-       uint16 totalDefenderDamage = 0;
+    function _executeMoves(uint _duelId, Attacker storage attacker,
+        EtherbotsBase.Part[4] defenderParts, uint8[] _defenderMoves) internal {
+        // @fixme change usage of seed to make sure it's okay.
+        //  uint seed = randomSeed(_defenderMoves, attacker.moves);
+        uint16 totalAttackerDamage = 0;
+        uint16 totalDefenderDamage = 0;
 
-       EtherbotsBase.Part[4] memory attackerParts = [
+        EtherbotsBase.Part[4] memory attackerParts = [
             _makePart(attacker.parts[0]),
             _makePart(attacker.parts[1]),
             _makePart(attacker.parts[2]),
             _makePart(attacker.parts[3])
-       ];
+        ];
 
         uint16 attackerDamage;
         uint16 defenderDamage;
-       // works just the same for draws
+        // works just the same for draws
         for (uint8 i = 0; i < MOVE_LENGTH; i++) {
            // TODO: check move for validity?
             // var attackerMove = attacker.moves[i];
@@ -659,100 +667,82 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
             totalDefenderDamage += defenderDamage;
             attackerdamage(attackerDamage);
             defenderdamage(defenderDamage);
-            BattleStage(_duelId, i, [ attacker.moves[i], _defenderMoves[i] ], [attackerDamage, defenderDamage] );
+            BattleStage(_duelId, i, [ attacker.moves[i], _defenderMoves[i] ], [attackerDamage, defenderDamage]);
             // BattleStage(_duelId, i, movesInMemory, damageInMemory );
-
         }
 
         if (totalAttackerDamage > totalDefenderDamage) {
             attacker.isWinner = true;
         }
         _winBattle(duels[_duelId].defenderAddress, attacker.owner, _defenderMoves,
-            attacker.moves,duels[_duelId].defenderParts,attacker.parts, attacker.isWinner);
+            attacker.moves, duels[_duelId].defenderParts, attacker.parts, attacker.isWinner);
     }
 
+    uint constant RANGE = 40;
 
-   uint constant RANGE = 40;
+    function _applyRandomness(uint rand, uint16 _dmg) internal pure returns (uint16) {
+        // damage can be modified between 1 - (RANGE/2) and 1 + (RANGE/2)
+        // keep things interesting!
+        int16 damageNoise = 0;
+        rand = rand % RANGE;
+        if (rand > (RANGE / 2)) {
+            damageNoise = int16(rand/2);
+            // rand is 21 or above
+        } else {
+            // rand is 20 or below
+            // this way makes 0 better than 20 --> who cares
+            damageNoise = int16(-rand);
+        }
+        int16 toChange = int16(_dmg) * damageNoise/100;
+        return uint16(int16(_dmg) + toChange);
+    }
 
-   function _applyRandomness(uint rand, uint16 _dmg) internal pure returns (uint16) {
-       // damage can be modified between 1 - (RANGE/2) and 1 + (RANGE/2)
-       // keep things interesting!
-       int16 damageNoise = 0;
-       rand = rand % RANGE;
-       if (rand > (RANGE / 2)) {
-           damageNoise = int16(rand/2);
-           // rand is 21 or above
-       } else {
-           // rand is 20 or below
-           // this way makes 0 better than 20 --> who cares
-           damageNoise = int16(-rand);
-       }
-       int16 toChange = int16(_dmg) * damageNoise/100;
-       return uint16(int16(_dmg) + toChange);
-   }
+    // every move
+    uint16 constant BASE_DAMAGE = 1000;
+    uint8 constant WINNER_SPLIT = 3;
+    uint8 constant LOSER_SPLIT = 1;
 
-   // every move
-   uint16 constant BASE_DAMAGE = 1000;
-   uint8 constant WINNER_SPLIT = 3;
-   uint8 constant LOSER_SPLIT = 1;
-
-   function _calculateBaseDamage(uint8 a, uint8 d) internal pure returns(uint16, uint16) {
-       if (defeats(a, d)) {
-           // 3 - 1 split
-           return ((BASE_DAMAGE / (WINNER_SPLIT + LOSER_SPLIT)) * WINNER_SPLIT,
+    function _calculateBaseDamage(uint8 a, uint8 d) internal pure returns(uint16, uint16) {
+        if (defeats(a, d)) {
+            // 3 - 1 split
+            return ((BASE_DAMAGE / (WINNER_SPLIT + LOSER_SPLIT)) * WINNER_SPLIT,
                (BASE_DAMAGE / (WINNER_SPLIT + LOSER_SPLIT)) * LOSER_SPLIT);
-       } else if (defeats(d, a)) {
-           // 3 - 1 split
-           return ((BASE_DAMAGE / (WINNER_SPLIT + LOSER_SPLIT)) * LOSER_SPLIT,
+        } else if (defeats(d, a)) {
+            // 3 - 1 split
+            return ((BASE_DAMAGE / (WINNER_SPLIT + LOSER_SPLIT)) * LOSER_SPLIT,
                (BASE_DAMAGE / (WINNER_SPLIT + LOSER_SPLIT)) * WINNER_SPLIT);
-       } else {
-           return (BASE_DAMAGE / 2, BASE_DAMAGE / 2);
-       }
-   }
-   // defence > attack
-   // attack > body
-   // body > turret
-   // turret > defence
+        } else {
+            return (BASE_DAMAGE / 2, BASE_DAMAGE / 2);
+        }
+    }
 
-   /* move after it beats it
-   uint8 constant DEFEND = 0;
-   uint8 constant ATTACK = 1;
-   uint8 constant BODY = 2;
-   uint8 constant TURRET = 3;
-   */
+    uint8 constant MOVE_TYPE_COUNT = 4;
 
-   uint8 constant MOVE_TYPE_COUNT = 4;
+    // defence > attack
+    // attack > body
+    // body > turret
+    // turret > defence
+    function defeats(uint8 a, uint8 b) internal pure returns(bool) {
+        return (a + 1) % MOVE_TYPE_COUNT == b;
+    }
 
-   // defence > attack
-   // attack > body
-   // body > turret
-   // turret > defence
-
-   // don't hardcode this
-   function defeats(uint8 a, uint8 b) internal pure returns(bool) {
-       return (a + 1) % MOVE_TYPE_COUNT == b;
-   }
-
-   // Experience-related functions/fields
-
-   function _winBattle(address attackerAddress, address defenderAddress,
-       uint8[] attackerMoves, uint8[] defenderMoves, uint[] attackerPartIds,
-       uint[] defenderPartIds, bool isAttackerWinner
-   ) internal {
-       if (isAttackerWinner) {
+    // Experience-related functions/fields
+    function _winBattle(address attackerAddress, address defenderAddress,
+        uint8[] attackerMoves, uint8[] defenderMoves, uint[] attackerPartIds,
+        uint[] defenderPartIds, bool isAttackerWinner) internal {
+        if (isAttackerWinner) {
             var (winnerExpBase, loserExpBase) = _calculateExpSplit(attackerPartIds, defenderPartIds);
             _allocateExperience(attackerAddress, attackerMoves, winnerExpBase, attackerPartIds);
             _allocateExperience(defenderAddress, defenderMoves, loserExpBase, defenderPartIds);
-       } else {
+        } else {
             (winnerExpBase, loserExpBase) = _calculateExpSplit(defenderPartIds, attackerPartIds);
             _allocateExperience(defenderAddress, defenderMoves, winnerExpBase, defenderPartIds);
             _allocateExperience(attackerAddress, attackerMoves, loserExpBase, attackerPartIds);
-       }
+        }
     }
 
-    function _forfeitBattle( address winnerAddress,
-        uint8[] winnerMoves, uint[] winnerPartIds, uint[] loserPartIds
-   ) internal {
+    function _forfeitBattle(address winnerAddress,
+        uint8[] winnerMoves, uint[] winnerPartIds, uint[] loserPartIds) internal {
         var (winnerExpBase, ) = _calculateExpSplit(winnerPartIds, loserPartIds);
 
         _allocateExperience(winnerAddress, winnerMoves, winnerExpBase, winnerPartIds);
@@ -769,10 +759,9 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
     // e.g. small bot attacks and defeats big bot (1000exp, -900exp) = 100 total
     // huge incentive to play in the middle of the curve
     // makes collusion only slightly profitable (maybe -EV considering battle fees)
-
-    function _calculateExpSplit(uint[] winnerParts,uint[] loserParts ) internal view returns (int32, int32) {
-        uint32 totalWinnerLevel = base.totalLevel(winnerParts) + 1;
-        uint32 totalLoserLevel = base.totalLevel(loserParts) + 1; // if no experience, don't divide by zero @@@@@@@@_@@@@@@@@
+    function _calculateExpSplit(uint[] winnerParts, uint[] loserParts) internal view returns (int32, int32) {
+        uint32 totalWinnerLevel = base.totalLevel(winnerParts);
+        uint32 totalLoserLevel = base.totalLevel(loserParts);
         // TODO: do we care about gold parts/combos etc
         // gold parts will naturally tend to higher levels anyway
         int32 total = _calculateTotalExperience(totalWinnerLevel, totalLoserLevel);
@@ -786,6 +775,7 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
 
     uint8 constant WS = 3;
     uint8 constant LS = 1;
+
     function _calculateSplits(int32 total, uint32 wl, uint32 ll) internal pure returns (int32, int32) {
 
         int32 winnerSplit = max(WMIN, min(WMAX, ((total * WS) * (int32(ll) / int32(wl))) / (WS + LS)));
@@ -808,14 +798,14 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         return max(BMIN, BMAX - max(-RATIO * diff, RATIO * diff));
     }
 
-    function max(int32 a, int32 b) pure internal returns (int32) {
+    function max(int32 a, int32 b) internal pure returns (int32) {
         if (a > b) {
             return a;
         }
         return b;
     }
 
-    function min(int32 a, int32 b) pure internal returns (int32) {
+    function min(int32 a, int32 b) internal pure returns (int32) {
         if (a > b) {
             return b;
         }
