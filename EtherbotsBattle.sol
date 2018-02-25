@@ -248,22 +248,22 @@ contract EtherbotsBattle is EtherbotsMigrations {
         return exp;
     }
 
-    function _totalLevel(uint[] partIds) public view returns (uint32) {
+    function totalLevel(uint[] partIds) public view returns (uint32) {
         uint32 total = 0;
         for (uint i = 0; i < partIds.length; i++) {
-            total += _getLevel(parts[partIds[i]].experience);
+            total += getLevel(parts[partIds[i]].experience);
         }
         return total;
     }
 
 
-
-    function hasPartTypes(uint[] partIds, uint8[4] types) external view returns(bool) {
-        if (partIds.length != types.length) {
+    function hasValidParts(uint[] partIds) external view returns(bool) {
+        uint len = partIds.length;
+        if (len != 4) {
             return false;
         }
-        for (uint i = 0; i < partIds.length; i++) {
-            if (parts[partIds[i]].partType != types[i]) {
+        for (uint i = 0; i < len; i++) {
+            if (parts[partIds[i]].partType != i+1) {
                 return false;
             }
         }
