@@ -69,7 +69,7 @@ contract PerkTree is EtherbotsNFT {
     function choosePerk(uint8 _i) external {
         User storage currentUser = addressToUser[msg.sender];
         uint256 _numActivePerks = _sumActivePerks(currentUser.perks) + (30 * currentUser.perks[0]);
-        require(_numActivePerks < _getLevel(currentUser.experience) / 2);
+        require(_numActivePerks < getLevel(currentUser.experience) / 2);
         if (_i == 0) {
             require(_isValidPrestige(currentUser.perks));
             _prestige();
