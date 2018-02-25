@@ -8,7 +8,7 @@ contract Battle {
     // the number of robots currently battling
     function playerCount() external view returns (uint count);
     // creates a new battle, with a submitted user string for initial input/
-    function createBattle(address defender, uint[] partIds, bytes32 commit) external payable;
+    function createBattle(address _creator, uint[] _partIds, bytes32 _commit, uint _revealLength) external payable;
     // cancels the battle at battleID
     function cancelBattle(uint battleID) external;
     
