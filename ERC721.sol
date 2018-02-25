@@ -378,7 +378,7 @@ contract EtherbotsNFT is EtherbotsBase, ERC721Enumerable, ERC721Original {
     // every level, you need 1000 more exp to go up a level
     function getLevel(uint32 _exp) public pure returns(uint32) {
         uint32 c = 0;
-        for (uint32 i = FIRST_LEVEL; i <= _exp; i += c * INCREMENT) {
+        for (uint32 i = FIRST_LEVEL; i <= FIRST_LEVEL + _exp; i += c * INCREMENT) {
             c++;
         }
         return c;
