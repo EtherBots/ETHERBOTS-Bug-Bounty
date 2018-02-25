@@ -238,6 +238,7 @@ contract EtherbotsBattle is EtherbotsMigrations {
         if (exp < 0 && uint32(int32(p.experience) + exp) > p.experience) {
             // check for wrap-around
             p.experience = 0;
+            return;
         } else if (exp > 0) {
             // check for overflow
             require(uint32(int32(p.experience) + exp) > p.experience);
