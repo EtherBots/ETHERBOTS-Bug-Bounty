@@ -7,13 +7,16 @@ import "./AccessControl.sol";
 
 contract TwoPlayerCommitRevealBattle is Battle, Pausable {
 
+    EtherbotsBattle base;
 
-    EtherbotsBattle _base;
-
-    function TwoPlayerCommitRevealBattle(EtherbotsBattle base) public {
-        _base = base;
+    function TwoPlayerCommitRevealBattle(EtherbotsBattle _base) public {
+        base = _base;
     }
-    
+
+    function setBase(EtherbotsBattle _base) external onlyOwner {
+        base = _base;
+    }
+
     // Battle interface implementation.
 
 
@@ -26,7 +29,7 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
     }
 
     function battleCount() external view returns (uint) {
-        return duels.length; 
+        return duels.length;
     }
 
     function winnersOf(uint _duelId) external view returns (address[16] winnerAddresses) {
@@ -70,7 +73,6 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         bytes32 defenderCommit;
         uint64 maxAcceptTime;
         address defenderAddress;
-        // Attacker[] attackers;
         DuelStatus status;
     }
 
@@ -80,19 +82,21 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         uint8[] moves;
         bool isWinner;
     }
+
     mapping (uint => Attacker[]) public duelIdToAttackers;
     // ID maps to index in battles array.
     // TODO: do we need this?
     // TODO: don't think we ever update it
     // if we want to find all the duels for a user, just use external view
     // mapping (address => uint[]) public addressToDuels;
+
     Duel[] public duels;
     uint public duelingPlayers;
 
     function getAttackersMoveFromDuelIdAndIndex(uint index, uint i, uint8 move) external view returns (uint8) {
         return duelIdToAttackers[index][i].moves[move];
     }
-    
+
     function getAttackersPartsFromDuelIdAndIndex(uint index, uint i) external view returns (uint, uint, uint, uint) {
         return (duelIdToAttackers[index][i].parts[0],duelIdToAttackers[index][i].parts[1],duelIdToAttackers[index][i].parts[2],duelIdToAttackers[index][i].parts[3]);
     }
@@ -115,8 +119,6 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
      OWNER CONTROLLED FIELDS
     =========================
     */
-
-
 
     // centrally controlled fields
     // CONSIDER: can users ever change these (e.g. different time per battle)
@@ -149,7 +151,7 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
 
 
     function _makePart(uint _id) internal view returns(EtherbotsBase.Part) {
-        var (id, pt, pst, rarity, element, bld, exp, forgeTime, blr) = _base.getPartById(_id);
+        var (id, pt, pst, rarity, element, bld, exp, forgeTime, blr) = base.getPartById(_id);
         return EtherbotsBase.Part({
             tokenId: id,
             partType: pt,
@@ -173,11 +175,11 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
     // uint[8]|random string
 
     function createBattle(address _defender, uint[] partIds, bytes32 _movesCommit) external payable whenNotPaused {
-        require(msg.sender == address(_base));
+        require(msg.sender == address(base));
 
         // will fail if the base doesn't own all of the parts
         for (uint i=0; i<partIds.length; i++) {
-            _base.takeOwnership(partIds[i]);
+            base.takeOwnership(partIds[i]);
         }
         _defenderCommitMoves(_defender, partIds, _movesCommit);
     }
@@ -189,11 +191,11 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
 
         // check parts //defence1 melee2 body3 turret4
         // uint8[4] memory types = [1, 2, 3, 4];
-        require(_base.hasValidParts(partIds));
+        require(base.hasValidParts(partIds));
 
         // is this the way of balancing the benefit of attacking?
         // should we have a max number of people who can attack one defender if we're going down this route?
-        
+
         Duel memory _duel = Duel({
             defenderAddress: _defender,
             defenderParts: partIds,
@@ -214,10 +216,10 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
     function attack(uint _duelId, uint[] partIds, uint8[] _moves) external payable returns(bool) {
 
         // check that it's your robot
-        require(_base.ownsAll(msg.sender, partIds));
+        require(base.ownsAll(msg.sender, partIds));
         // check parts submitted are valid
-        require(_base.hasValidParts(partIds));
-        
+        require(base.hasValidParts(partIds));
+
         // check that the moves are readable
         require(_isValidMoves(_moves));
 
@@ -236,7 +238,7 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
             duel.status = DuelStatus.Exhausted;
             return false;
         }
-        
+
 
         duel.feeRemaining -= defenderFee;
 
@@ -250,7 +252,7 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
 
         // duelIdToAttackers[_duelId].push(_a);
         duelIdToAttackers[_duelId].push(_a);
-        
+
         if (duelIdToAttackers[_duelId].length == maxAttackers) {
             duel.status = DuelStatus.Exhausted;
         }
@@ -302,12 +304,14 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
 
         require(_duel.defenderAddress == msg.sender);
 
-        // require(bytes(_moves).length == 8);
         require(_duel.defenderCommit == keccak256(_moves, _seed));
-        // if (_duel.defenderCommit != keccak256(_moves, _seed)) {
-            // InvalidAction("Moves did not match move commit");
-            // return false;
-        // }
+
+        if (!_isValidMoves(_moves)) {
+            _forceAttackerWin(_duelId, _duel);
+            _duel.status = DuelStatus.Completed;
+            return false;
+        }
+
         // after the defender has revealed their moves, perform all the duels
         EtherbotsBase.Part[4] memory defenderParts = [
             _makePart(_duel.defenderParts[0]),
@@ -323,7 +327,7 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         // give back an extra fees
         _refundDuelFee(_duel);
         // send back ownership of parts
-        _base.transferAll(_duel.defenderAddress, _duel.defenderParts);
+        base.transferAll(_duel.defenderAddress, _duel.defenderParts);
         duels[_duelId].status = DuelStatus.Completed;
 
         return true;
@@ -338,11 +342,9 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         // can only be called by the defender
         require(msg.sender == _duel.defenderAddress);
 
-        Attacker[] memory attackers = duelIdToAttackers[_duelId];
+        _forceAttackerWin(_duelId, _duel);
 
-        _forceAttackerWin(_duel, attackers);
-
-        duels[_duelId].status = DuelStatus.Cancelled;
+        _duel.status = DuelStatus.Cancelled;
     }
 
     // after the time limit has elapsed, anyone can claim victory for all the attackers
@@ -352,19 +354,19 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         Duel storage _duel = duels[_duelId];
 
         // let anyone claim it to stop boring iteration
-        // @fixme CHANGED FROM MAX REVEAL TIME (doesn't exist) TO 
+        // @fixme CHANGED FROM MAX REVEAL TIME (doesn't exist) TO
         // MAX ACCEPT TIME + 1 DAY.
         require(now > (_duel.maxAcceptTime + 1 days));
 
-        Attacker[] memory attackers = duelIdToAttackers[_duelId];
-
-        _forceAttackerWin(_duel, attackers);
+        _forceAttackerWin(_duelId, _duel);
 
         _duel.status = DuelStatus.Completed;
     }
 
-    function _forceAttackerWin(Duel storage _duel, Attacker[] memory _attackers) internal {
-       
+    function _forceAttackerWin(uint _duelId, Duel storage _duel) internal {
+
+        Attacker[] memory _attackers = duelIdToAttackers[_duelId];
+
         require(_duel.status == DuelStatus.Open || _duel.status == DuelStatus.Exhausted);
 
         for (uint i = 0; i < _attackers.length; i++) {
@@ -372,20 +374,16 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
             _attackers[i].isWinner = true;
             _forfeitBattle(tempA.owner, tempA.moves, tempA.parts, _duel.defenderParts);
         }
-        
         // refund the defender
 
         _refundDuelFee(_duel);
-        
+
         // transfer parts back to defender
-
-        _base.transferAll(_duel.defenderAddress, _duel.defenderParts);
-
-
+        base.transferAll(_duel.defenderAddress, _duel.defenderParts);
     }
 
 
-  
+
 
     function _refundDuelFee(Duel storage _duel) internal {
         if (_duel.feeRemaining > 0) {
@@ -395,24 +393,19 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         }
     }
 
-    uint16 constant EXP_BASE = 100;
+    uint16 constant EXPbase = 100;
     uint16 constant WINNER_EXP = 3;
     uint16 constant LOSER_EXP = 1;
 
     uint8 constant BONUS_PERCENT = 5;
     uint8 constant ALL_BONUS = 5;
 
-    // Parts reminder: Blueprint represents details of the part:
-    // [2] part level (experience),
-    // [3] rarity status, (representing, i.e., "gold")
-    // [4] elemental type, (i.e., "water")
-
-    function getPartBonus(uint movingPart, EtherbotsBase.Part[4] parts) internal view returns (uint8) {
-        uint8 typ = _makePart(movingPart).rarity;
+    function _getElementBonus(uint movingPart, EtherbotsBase.Part[4] parts) internal view returns (uint8) {
+        uint8 typ = parts[movingPart].element;
         // apply bonuses
         uint8 matching = 0;
         for (uint8 i = 0; i < parts.length; i++) {
-            if (parts[i].rarity == typ) {
+            if (parts[i].element == typ) {
                 matching++;
             }
         }
@@ -571,63 +564,57 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         return bonus + (PERK_BONUS + (prestige * PRESTIGE_BONUS));
     }
 
-   function getPerkBonus(uint8 move, EtherbotsBase.Part[4] parts) internal view returns (uint8) {
-       var (, perks) = _base.getUserByAddress(msg.sender);
+   function _getPerkBonus(uint8 move, EtherbotsBase.Part[4] parts) internal view returns (uint8) {
+       var (, perks) = base.getUserByAddress(msg.sender);
        return _applyBonusTree(move, parts, perks);
    }
 
-   uint constant EXP_BONUS = 1;
-   uint constant EVERY_X_LEVELS = 2;
+   uint8 constant EXP_BONUS = 1;
+   uint8 constant EVERY_X_LEVELS = 2;
 
-   function getExpBonus(EtherbotsBase.Part[4] parts) internal view returns (uint8) {
-
-       uint[] memory partIds = new uint[](4);
-       partIds[0] = parts[0].tokenId;
-       partIds[1] = parts[1].tokenId;
-       partIds[2] = parts[2].tokenId;
-       partIds[3] = parts[3].tokenId;
-       
-
-    //    [uint(,uint(parts[1].tokenId),
-    //    uint(parts[2].tokenId),uint(parts[3].tokenId)];
-       return uint8((_base._totalLevel(partIds) * EXP_BONUS) / EVERY_X_LEVELS);
+   function _getExpBonus(EtherbotsBase.Part part) internal view returns (uint8) {
+       // could replicate locally but allow base contract to make updates
+       return uint8((EXP_BONUS * base.getLevel(part.experience)) / EVERY_X_LEVELS);
    }
 
-   uint8 constant SHADOW_BONUS = 5;
-   uint8 constant GOLD_BONUS = 10;
+   uint8 constant STANDARD_RARITY = 1;
+   uint8 constant SHADOW_RARITY = 2;
+   uint8 constant GOLD_RARITY = 3;
 
     // allow for more rarities
     // might never implement: undroppable rarities
     // 5 gold parts can be forged into a diamond
     // assumes rarity as follows: standard = 0, shadow = 1, gold = 2
     // shadow gives base 5% boost, gold 10% ...
-   function getRarityBonus(uint8 move, EtherbotsBase.Part[4] parts) internal pure returns (uint8) {
+   function _getRarityBonus(uint8 move, EtherbotsBase.Part[4] parts) internal pure returns (uint8) {
         // bonus applies per part (but only if you're using the rare part in this move)
         uint8 rarity = parts[move].rarity;
-        uint8 count = 0;
-        if (rarity == 0) {
+        if (rarity == STANDARD_RARITY) {
             // standard rarity, no bonus
             return 0;
         }
+        uint8 count = 0;
+        // will always be at least 1
         for (uint8 i = 0; i < parts.length; i++) {
             if (parts[i].rarity == rarity) {
                 count++;
             }
         }
-        uint8 bonus = count * BONUS_PERCENT;
+        uint8 bonus = (rarity - 1) * count * BONUS_PERCENT;
         return bonus;
    }
 
    function _applyBonuses(uint8 move, EtherbotsBase.Part[4] parts, uint16 _dmg) internal view returns(uint16) {
        // perks only land if you won the move
-       uint16 _bonus = getPerkBonus(move, parts);
-       _bonus += getPartBonus(move, parts);
-       _bonus += getExpBonus(parts);
-       _bonus += getRarityBonus(move, parts);
+       uint16 _bonus = 0;
+       _bonus += _getPerkBonus(move, parts);
+       _bonus += _getElementBonus(move, parts);
+       _bonus += _getExpBonus(parts[move]);
+       _bonus += _getRarityBonus(move, parts);
        _dmg += (_dmg * _bonus) / 100;
        return _dmg;
    }
-    
+
    // what about collusion - can try to time the block?
    // obviously if colluding could just pick exploitable moves
    // this is random enough for two non-colluding parties
@@ -635,9 +622,10 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         return uint(keccak256(defenderMoves, attackerMoves, rand));
         // return random;
    }
-    event attackerdamage(uint16 dam);
-    event defenderdamage(uint16 dam);
-       
+
+   event attackerdamage(uint16 dam);
+   event defenderdamage(uint16 dam);
+
    function _executeMoves(uint _duelId, Attacker storage attacker, EtherbotsBase.Part[4] defenderParts, uint8[] _defenderMoves) internal {
        // @fixme change usage of seed to make sure it's okay.
     //    uint seed = randomSeed(_defenderMoves, attacker.moves);
@@ -678,14 +666,12 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
 
         if (totalAttackerDamage > totalDefenderDamage) {
             attacker.isWinner = true;
-            // _winBattle(attacker.owner, duels[_duelId].defenderAddress, attacker.moves,
-            //     _defenderMoves, attacker.parts, duels[_duelId].defenderParts);
         }
-            _winBattle(duels[_duelId].defenderAddress, attacker.owner, _defenderMoves, 
+        _winBattle(duels[_duelId].defenderAddress, attacker.owner, _defenderMoves,
             attacker.moves,duels[_duelId].defenderParts,attacker.parts, attacker.isWinner);
     }
 
-    
+
    uint constant RANGE = 40;
 
    function _applyRandomness(uint rand, uint16 _dmg) internal pure returns (uint16) {
@@ -711,10 +697,6 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
    uint8 constant LOSER_SPLIT = 1;
 
    function _calculateBaseDamage(uint8 a, uint8 d) internal pure returns(uint16, uint16) {
-       if (a == d) {
-           // even split
-           return (BASE_DAMAGE / 2, BASE_DAMAGE / 2);
-       }
        if (defeats(a, d)) {
            // 3 - 1 split
            return ((BASE_DAMAGE / (WINNER_SPLIT + LOSER_SPLIT)) * WINNER_SPLIT,
@@ -753,29 +735,26 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
 
    // Experience-related functions/fields
 
-   function _winBattle(address attackerAddress, address defenderAddress, 
-   uint8[] attackerMoves, uint8[] defenderMoves, uint[] attackerPartIds, uint[] defenderPartIds, bool isAttackerWinner
-   ) internal 
-   {    
+   function _winBattle(address attackerAddress, address defenderAddress,
+       uint8[] attackerMoves, uint8[] defenderMoves, uint[] attackerPartIds,
+       uint[] defenderPartIds, bool isAttackerWinner
+   ) internal {
        if (isAttackerWinner) {
-        var (winnerExpBase, loserExpBase) = _calculateExpSplit(attackerPartIds, defenderPartIds);
-        _allocateExperience(attackerAddress, attackerMoves, winnerExpBase, attackerPartIds);
-        _allocateExperience(defenderAddress, defenderMoves, loserExpBase, defenderPartIds);
+            var (winnerExpBase, loserExpBase) = _calculateExpSplit(attackerPartIds, defenderPartIds);
+            _allocateExperience(attackerAddress, attackerMoves, winnerExpBase, attackerPartIds);
+            _allocateExperience(defenderAddress, defenderMoves, loserExpBase, defenderPartIds);
        } else {
-        (winnerExpBase, loserExpBase) = _calculateExpSplit(defenderPartIds, attackerPartIds);   
-        _allocateExperience(defenderAddress, defenderMoves, winnerExpBase, defenderPartIds);
-        _allocateExperience(attackerAddress, attackerMoves, loserExpBase, attackerPartIds);
+            (winnerExpBase, loserExpBase) = _calculateExpSplit(defenderPartIds, attackerPartIds);
+            _allocateExperience(defenderAddress, defenderMoves, winnerExpBase, defenderPartIds);
+            _allocateExperience(attackerAddress, attackerMoves, loserExpBase, attackerPartIds);
        }
-
-        
     }
 
     function _forfeitBattle( address winnerAddress,
         uint8[] winnerMoves, uint[] winnerPartIds, uint[] loserPartIds
-   ) internal 
-   {
+   ) internal {
         var (winnerExpBase, ) = _calculateExpSplit(winnerPartIds, loserPartIds);
-        
+
         _allocateExperience(winnerAddress, winnerMoves, winnerExpBase, winnerPartIds);
     }
 
@@ -792,8 +771,8 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
     // makes collusion only slightly profitable (maybe -EV considering battle fees)
 
     function _calculateExpSplit(uint[] winnerParts,uint[] loserParts ) internal view returns (int32, int32) {
-        uint32 totalWinnerLevel = _base._totalLevel(winnerParts) + 1;
-        uint32 totalLoserLevel = _base._totalLevel(loserParts) + 1; // if no experience, don't divide by zero @@@@@@@@_@@@@@@@@
+        uint32 totalWinnerLevel = base.totalLevel(winnerParts) + 1;
+        uint32 totalLoserLevel = base.totalLevel(loserParts) + 1; // if no experience, don't divide by zero @@@@@@@@_@@@@@@@@
         // TODO: do we care about gold parts/combos etc
         // gold parts will naturally tend to higher levels anyway
         int32 total = _calculateTotalExperience(totalWinnerLevel, totalLoserLevel);
@@ -808,10 +787,10 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
     uint8 constant WS = 3;
     uint8 constant LS = 1;
     function _calculateSplits(int32 total, uint32 wl, uint32 ll) internal pure returns (int32, int32) {
-        
+
         int32 winnerSplit = max(WMIN, min(WMAX, ((total * WS) * (int32(ll) / int32(wl))) / (WS + LS)));
         int32 loserSplit = total - winnerSplit;
-  
+
         return (winnerSplit, loserSplit);
     }
 
@@ -842,17 +821,15 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         }
         return a;
     }
+
     // allocates experience based on how many times a part was used in battle
     function _allocateExperience(address playerAddress, uint8[] moves, int32 exp, uint[] partIds) internal {
-    
         int32[] memory exps = new int32[](partIds.length);
-        int32 sum = 0;
         int32 each = exp / MOVE_LENGTH;
         for (uint i = 0; i < MOVE_LENGTH; i++) {
             exps[moves[i]] += each;
-            sum += each;
         }
-        _base.addExperience(playerAddress, partIds, exps);
+        base.addExperience(playerAddress, partIds, exps);
     }
 
 
