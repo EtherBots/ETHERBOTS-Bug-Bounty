@@ -120,6 +120,33 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
             _duel.revealTime, _duel.defenderAddress, _duel.status);
     }
 
+    function getAllDuelsAndStatuses() external view returns (bytes32[]) {
+        
+        uint totalDuels = duels.length;
+        uint resultIndex = 0;
+
+        bytes32[] memory idAndStatus = new bytes32[](totalDuels);
+
+        for (uint duelId = 0; duelId < totalDuels; duelId++) {
+
+            Duel memory d = duels[duelId];
+
+            bytes32 b;
+
+            b = bytes32(duelId);
+            
+            b = b << 8;
+            b = bytes32(uint8(d.status));
+
+     
+            idAndStatus[resultIndex] = b;
+            resultIndex++;
+
+        }
+
+        return idAndStatus;
+    }
+
     /*
     =========================
      OWNER CONTROLLED FIELDS
@@ -128,10 +155,10 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
     // centrally controlled fields
     // CONSIDER: can users ever change these (e.g. different time per battle)
     // CONSIDER: how do we incentivize users to fight 'harder' bots
-    uint8 public maxAttackers = 5;
-    uint public maxRevealTime;
-    uint public attackerFee = 0;
-    uint public defenderFee = 0;
+    uint8 public maxAttackers = 1;
+    uint public maxRevealTime = 2 hours;
+    uint public attackerFee = 0.0001 ether; // necessary because fighting rewards parts which have eth value
+    uint public defenderFee = 0.0001 ether;
     uint public expiryCompensation = 0;
 
     function setMaxAttackers(uint8 _max) external onlyOwner {
@@ -139,15 +166,21 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         maxAttackers = _max;
     }
 
-    function setDefenderFee(uint _fee) external onlyOwner {
-        BattlePropertyChanged("Defender Fee", defenderFee, _fee);
-        defenderFee = _fee;
+    function setMaxRevealTime(uint64 _maxRevealTime) external onlyOwner {
+        BattlePropertyChanged("Reveal Time ", maxRevealTime, _maxRevealTime);
+        maxRevealTime = _maxRevealTime;
     }
 
     function setAttackerFee(uint _fee) external onlyOwner {
         BattlePropertyChanged("Attacker Fee", attackerFee, _fee);
         attackerFee = _fee;
     }
+
+    function setDefenderFee(uint _fee) external onlyOwner {
+        BattlePropertyChanged("Defender Fee", defenderFee, _fee);
+        defenderFee = _fee;
+    }
+
 
     function setAttackerRefund(uint _refund) external onlyOwner {
         BattlePropertyChanged("Attacker Refund", expiryCompensation, _refund);
@@ -192,20 +225,18 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
 
         require(msg.value >= defenderFee);
 
-        // check parts //defence1 melee2 body3 turret4
+        // check parts: defence1 melee2 body3 turret4
         // uint8[4] memory types = [1, 2, 3, 4];
-        require(base.hasValidParts(partIds));
 
-        // is this the way of balancing the benefit of attacking?
-        // should we have a max number of people who can attack one defender if we're going down this route?
+        require(base.hasValidParts(partIds));
+        require(_revealLength < maxRevealTime);
 
         Duel memory _duel = Duel({
             defenderAddress: _defender,
             defenderParts: partIds,
             defenderCommit: _movesCommit,
-            revealTime: uint64(now + _revealLength),
+            revealTime: uint64(_revealLength),
             status: DuelStatus.Open,
-            // attackers: new Attacker[](0),
             feeRemaining: msg.value
         });
         // TODO: -1 here?
@@ -230,7 +261,7 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         // the duel must be open
         require(duel.status == DuelStatus.Open);
         // can't attack after reveal time (no free wins)
-        require(duel.revealTime >= now);
+        // require(duel.revealTime >= now);
         require(duelIdToAttackers[_duelId].length < maxAttackers);
         require(msg.value >= attackerFee);
 
@@ -260,6 +291,8 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
 
         if (duelIdToAttackers[_duelId].length == maxAttackers) {
             duel.status = DuelStatus.Exhausted;
+            duel.revealTime = uint64(now) + duel.revealTime;
+            // update the new reveal time once final attacker attacks
         }
 
         // increment those battling - @rename
@@ -363,10 +396,12 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         Duel storage _duel = duels[_duelId];
 
         // let anyone claim it to stop boring iteration
-        // @fixme CHANGED FROM MAX REVEAL TIME (doesn't exist) TO
-        // MAX ACCEPT TIME + 1 DAY.
+
+        require(_duel.status == DuelStatus.Exhausted);
         require(now > _duel.revealTime);
-        require(_duel.status == DuelStatus.Open || _duel.status == DuelStatus.Exhausted);
+
+        // make sure there's at least one attacker
+        require(duelIdToAttackers[_duelId].length > 0);
 
         _forceAttackerWin(_duelId, _duel);
 
@@ -422,138 +457,37 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
 
     uint8 constant PERK_BONUS = 5;
     uint8 constant PRESTIGE_INC = 1;
-    // level 0
+
     uint8 constant PT_PRESTIGE_INDEX = 0;
-    // level 1
-    uint8 constant PT_OFFENSIVE = 1;
-    uint8 constant PT_DEFENSIVE = 2;
-    // level 2
-    uint8 constant PT_MELEE = 3;
-    uint8 constant PT_TURRET = 4;
-    uint8 constant PT_DEFEND = 5;
-    uint8 constant PT_BODY = 6;
-    // level 3
-    uint8 constant PT_MELEE_MECH = 7;
-    uint8 constant PT_MELEE_ANDROID = 8;
-    uint8 constant PT_TURRET_MECH = 9;
-    uint8 constant PT_TURRET_ANDROID = 10;
-    uint8 constant PT_DEFEND_MECH = 11;
-    uint8 constant PT_DEFEND_ANDROID = 12;
-    uint8 constant PT_BODY_MECH = 13;
-    uint8 constant PT_BODY_ANDROID = 14;
-    // level 4
-    uint8 constant PT_MELEE_ELECTRIC = 15;
-    uint8 constant PT_MELEE_STEEL = 16;
-    uint8 constant PT_MELEE_FIRE = 17;
-    uint8 constant PT_MELEE_WATER = 18;
-    uint8 constant PT_TURRET_ELECTRIC = 19;
-    uint8 constant PT_TURRET_STEEL = 20;
-    uint8 constant PT_TURRET_FIRE = 21;
-    uint8 constant PT_TURRET_WATER = 22;
-    uint8 constant PT_DEFEND_ELECTRIC = 23;
-    uint8 constant PT_DEFEND_STEEL = 24;
-    uint8 constant PT_DEFEND_FIRE = 25;
-    uint8 constant PT_DEFEND_WATER = 26;
-    uint8 constant PT_BODY_ELECTRIC = 27;
-    uint8 constant PT_BODY_STEEL = 28;
-    uint8 constant PT_BODY_FIRE = 29;
-    uint8 constant PT_BODY_WATER = 30;
+   
+    bytes4 constant moveToPT = 0x06050304;
+    bytes4 constant elementToPT = 0x05060403;
+    uint8 constant PRESTIGE_BONUS = 1;
 
-    uint8 constant DODGE = 0;
-    uint8 constant DEFEND = 1;
-    uint8 constant MELEE = 2;
-    uint8 constant TURRET = 3;
-
-    uint8 constant FIRE = 0;
-    uint8 constant WATER = 1;
-    uint8 constant STEEL = 2;
-    uint8 constant ELECTRIC = 3;
-
-    // TODO: might be a more efficient way of doing this
-    // read: almost definitely is
-    // would destroy legibility tho?
-    // will get back to it --> pretty gross rn
     function _applyBonusTree(uint8 move, EtherbotsBase.Part[4] parts, uint8[32] tree) internal pure returns (uint8 bonus) {
         uint8 prestige = tree[PT_PRESTIGE_INDEX];
-        if (move == DEFEND || move == DODGE) {
-            if (hasPerk(tree, PT_DEFENSIVE)) {
-                bonus = _applyPerkBonus(bonus, prestige);
-                if (move == DEFEND && hasPerk(tree, PT_DEFEND)) {
-                    bonus = _applyPerkBonus(bonus, prestige);
-                    if (hasPerk(tree, PT_DEFEND_MECH)) {
-                        bonus = _applyPerkBonus(bonus, prestige);
-                        if (getMoveType(parts, move) == ELECTRIC && hasPerk(tree, PT_DEFEND_ELECTRIC)) {
-                            bonus = _applyPerkBonus(bonus, prestige);
-                        } else if (getMoveType(parts, move) == STEEL && hasPerk(tree, PT_DEFEND_STEEL)) {
-                            bonus = _applyPerkBonus(bonus, prestige);
-                        }
-                    } else if (hasPerk(tree, PT_DEFEND_ANDROID)) {
-                        bonus = _applyPerkBonus(bonus, prestige);
-                        if (getMoveType(parts, move) == FIRE && hasPerk(tree, PT_DEFEND_FIRE)) {
-                            bonus = _applyPerkBonus(bonus, prestige);
-                        } else if (getMoveType(parts, move) == WATER && hasPerk(tree, PT_DEFEND_WATER)) {
-                            bonus = _applyPerkBonus(bonus, prestige);
-                        }
-                    }
-                } else if (move == DODGE && hasPerk(tree, PT_BODY)) {
-                    bonus = _applyPerkBonus(bonus, prestige);
-                    if (hasPerk(tree, PT_BODY_MECH)) {
-                        bonus = _applyPerkBonus(bonus, prestige);
-                        if (getMoveType(parts, move) == ELECTRIC && hasPerk(tree, PT_BODY_ELECTRIC)) {
-                            bonus = _applyPerkBonus(bonus, prestige);
-                        } else if (getMoveType(parts, move) == STEEL && hasPerk(tree, PT_BODY_STEEL)) {
-                            bonus = _applyPerkBonus(bonus, prestige);
-                        }
-                    } else if (hasPerk(tree, PT_BODY_ANDROID)) {
-                        bonus = _applyPerkBonus(bonus, prestige);
-                        if (getMoveType(parts, move) == FIRE && hasPerk(tree, PT_BODY_FIRE)) {
-                            bonus = _applyPerkBonus(bonus, prestige);
-                        } else if (getMoveType(parts, move) == WATER && hasPerk(tree, PT_BODY_WATER)) {
-                            bonus = _applyPerkBonus(bonus, prestige);
-                        }
-                    }
-                }
-            }
-        } else {
-            if (hasPerk(tree, PT_OFFENSIVE)) {
-                bonus = _applyPerkBonus(bonus, prestige);
-                if (move == MELEE && hasPerk(tree, PT_MELEE)) {
-                    bonus = _applyPerkBonus(bonus, prestige);
-                    if (hasPerk(tree, PT_MELEE_MECH)) {
-                        bonus = _applyPerkBonus(bonus, prestige);
-                        if (getMoveType(parts, move) == ELECTRIC && hasPerk(tree, PT_MELEE_ELECTRIC)) {
-                            bonus = _applyPerkBonus(bonus, prestige);
-                        } else if (getMoveType(parts, move) == STEEL && hasPerk(tree, PT_MELEE_STEEL)) {
-                            bonus = _applyPerkBonus(bonus, prestige);
-                        }
-                    } else if (hasPerk(tree, PT_MELEE_ANDROID)) {
-                        bonus = _applyPerkBonus(bonus, prestige);
-                        if (getMoveType(parts, move) == FIRE && hasPerk(tree, PT_MELEE_FIRE)) {
-                            bonus = _applyPerkBonus(bonus, prestige);
-                        } else if (getMoveType(parts, move) == WATER && hasPerk(tree, PT_MELEE_WATER)) {
-                            bonus = _applyPerkBonus(bonus, prestige);
-                        }
-                    }
-                } else if (move == TURRET && hasPerk(tree, PT_TURRET)) {
-                    bonus = _applyPerkBonus(bonus, prestige);
-                    if (hasPerk(tree, PT_TURRET_MECH)) {
-                        bonus = _applyPerkBonus(bonus, prestige);
-                        if (getMoveType(parts, move) == ELECTRIC && hasPerk(tree, PT_TURRET_ELECTRIC)) {
-                            bonus = _applyPerkBonus(bonus, prestige);
-                        } else if (getMoveType(parts, move) == STEEL && hasPerk(tree, PT_TURRET_STEEL)) {
-                            bonus = _applyPerkBonus(bonus, prestige);
-                        }
-                    } else if (hasPerk(tree, PT_TURRET_ANDROID)) {
-                        bonus = _applyPerkBonus(bonus, prestige);
-                        if (getMoveType(parts, move) == FIRE && hasPerk(tree, PT_TURRET_FIRE)) {
-                            bonus = _applyPerkBonus(bonus, prestige);
-                        } else if (getMoveType(parts, move) == WATER && hasPerk(tree, PT_TURRET_WATER)) {
-                            bonus = _applyPerkBonus(bonus, prestige);
-                        }
+        
+        uint8 active = 0;
+        uint8 level2 = uint8(moveToPT[move]);
+        uint8 level1 = (level2 - 1) / 2;
+        
+        if (tree[level1] > 0) {
+            active++;
+            if (tree[level2] > 0) {
+                active++;
+                
+                uint8 level4 = level2 * 4 + uint8(elementToPT[parts[move].element]);
+                uint8 level3 = (level4 - 1) / 2;
+                
+                if (tree[level3] > 0) {
+                    active++;
+                    if (tree[level4] > 0) {
+                        active++;
                     }
                 }
             }
         }
+        bonus = active * (PERK_BONUS + (prestige * PRESTIGE_BONUS));
     }
 
     function getMoveType(EtherbotsBase.Part[4] parts, uint8 _move) internal pure returns(uint8) {
@@ -564,7 +498,7 @@ contract TwoPlayerCommitRevealBattle is Battle, Pausable {
         return tree[perk] > 0;
     }
 
-    uint8 constant PRESTIGE_BONUS = 1;
+    // uint8 constant PRESTIGE_BONUS = 1;
 
     function _applyPerkBonus(uint8 bonus, uint8 prestige) internal pure returns (uint8) {
         return bonus + (PERK_BONUS + (prestige * PRESTIGE_BONUS));
